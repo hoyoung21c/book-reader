@@ -36,6 +36,8 @@ summary{color:var(--mu)}
 <select id="area"><option value="A">화면 전체 (한 페이지)</option><option value="L">왼쪽 절반</option><option value="R">오른쪽 절반</option></select></div>
 <div class="row"><label>속도</label><input id="rate" type="range" min="0.7" max="1.3" step="0.05" value="0.95"></div>
 <div class="row"><label>목소리</label><select id="voice"></select></div>
+<div class="row"><label>카메라</label><select id="cam"><option>시작하면 표시돼요</option></select></div>
+<div class="row" id="zrow" style="display:none"><label>확대</label><input id="zoom" type="range"></div>
 <details><summary>인식된 텍스트</summary><div id="tx"></div></details>
 <canvas id="cv" hidden></canvas><canvas id="sm" width="48" height="36" hidden></canvas>
 <script>
@@ -130,12 +132,36 @@ async function tick(){
   setTimeout(tick,400);
 }
 
+// --- 카메라 선택·확대 ---
+async function openCam(id){
+  if(stream)stream.getTracks().forEach(t=>t.stop());
+  const v={width:{ideal:1920},height:{ideal:1080}};
+  if(id)v.deviceId={exact:id};else v.facingMode={ideal:'environment'};
+  stream=await navigator.mediaDevices.getUserMedia({video:v,audio:false});
+  video.srcObject=stream;await video.play();
+  prev=null;still=0;locked=false;fails=0;
+  setupZoom();
+}
+async function listCams(){
+  const ds=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='videoinput');
+  const cur=stream.getVideoTracks()[0].getSettings().deviceId;
+  $('cam').innerHTML=ds.map((d,i)=>`<option value="${d.deviceId}">${d.label||'카메라 '+(i+1)}</option>`).join('');
+  $('cam').value=cur;
+}
+function setupZoom(){
+  const t=stream.getVideoTracks()[0],c=t.getCapabilities?t.getCapabilities():{},z=$('zoom');
+  if(c.zoom){z.min=c.zoom.min;z.max=c.zoom.max;z.step=c.zoom.step||0.1;z.value=t.getSettings().zoom||c.zoom.min;$('zrow').style.display='flex'}
+  else $('zrow').style.display='none';
+}
+$('cam').onchange=async()=>{if(!running)return;try{await openCam($('cam').value)}catch(e){st.textContent='카메라 전환 실패: '+(e.message||e)}};
+$('zoom').oninput=()=>{const t=stream&&stream.getVideoTracks()[0];if(t)t.applyConstraints({advanced:[{zoom:parseFloat($('zoom').value)}]}).catch(()=>{})};
+
 async function start(){
   speechSynthesis.speak(new SpeechSynthesisUtterance('')); // 사용자 터치 시점에 음성 허용
   $('go').disabled=true;st.textContent='카메라와 인식 엔진 준비 중… (처음엔 1~2분 걸릴 수 있어요)';
   try{
-    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},audio:false});
-    video.srcObject=stream;await video.play();
+    await openCam();await listCams();
+    
     if(!worker)worker=await Tesseract.createWorker('eng',1,{langPath:'https://cdn.jsdelivr.net/npm/@tesseract.js-data/eng/4.0.0_best_int'});
     try{wake=await navigator.wakeLock.request('screen')}catch(e){}
     running=true;pageNo=0;pageWords=null;prev=null;still=0;locked=false;fails=0;lastTry=0;
