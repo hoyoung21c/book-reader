@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>원서 낭독기</title>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+<style>
+:root{--bg:#f7f6f2;--fg:#1d1d1b;--mu:#6b6a64;--card:#ebe9e2;--ac:#1f5fd6;--on:#fff}
+@media(prefers-color-scheme:dark){:root{--bg:#141413;--fg:#ecebe6;--mu:#9a988f;--card:#222220;--ac:#6c9cff;--on:#10131a}}
+*{box-sizing:border-box}
+body{margin:0 auto;max-width:640px;padding:12px;font:16px/1.5 system-ui,sans-serif;background:var(--bg);color:var(--fg)}
+h1{font-size:20px;margin:4px 0 10px}
+video{width:100%;max-height:40vh;background:#000;border-radius:8px;object-fit:contain;display:block}
+.row{display:flex;gap:8px;align-items:center;margin:10px 0}
+.row label{flex:0 0 76px;color:var(--mu);font-size:14px}
+select,input[type=range]{flex:1;min-width:0}
+select{padding:8px;border-radius:6px;border:1px solid var(--mu);background:var(--card);color:var(--fg);font-size:15px}
+button{padding:12px 16px;border:0;border-radius:8px;font-size:16px;font-weight:600;background:var(--ac);color:var(--on)}
+button.sub{background:var(--card);color:var(--fg)}
+button:disabled{opacity:.5}
+#st{font-weight:600;margin:10px 0 0}
+#mv{color:var(--mu);font-size:14px;min-height:21px}
+#tx{white-space:pre-wrap;background:var(--card);border-radius:8px;padding:10px;max-height:30vh;overflow:auto;font-size:15px;margin-top:6px}
+details{margin-top:10px}
+summary{color:var(--mu)}
+</style>
+</head>
+<body>
+<h1>원서 낭독기</h1>
+<video id="v" playsinline muted></video>
+<div id="st">시작 버튼을 누르세요</div>
+<div id="mv"></div>
+<div class="row"><button id="go" style="flex:1">시작</button><button id="again" class="sub" disabled>처음부터 다시</button></div>
+<div class="row"><label>인식 영역</label>
+<select id="area"><option value="A">화면 전체 (한 페이지)</option><option value="L">왼쪽 절반</option><option value="R">오른쪽 절반</option></select></div>
+<div class="row"><label>속도</label><input id="rate" type="range" min="0.7" max="1.3" step="0.05" value="0.95"></div>
+<div class="row"><label>목소리</label><select id="voice"></select></div>
+<details><summary>인식된 텍스트</summary><div id="tx"></div></details>
+<canvas id="cv" hidden></canvas><canvas id="sm" width="48" height="36" hidden></canvas>
+<script>
+const $=id=>document.getElementById(id);
+const video=$('v'),cv=$('cv'),sm=$('sm'),st=$('st'),mv=$('mv'),tx=$('tx');
+const MOVE=7, SIM=0.5, MINWORDS=10, OCRW=1500;
+let stream,worker,wake,running=false,busy=false,gen=0,pageNo=0,pageWords=null,lastParas=[];
+let prev=null,still=0,locked=false,fails=0,lastTry=0;
+
+// --- 목소리 ---
+function loadVoices(){
+  const vs=speechSynthesis.getVoices().filter(v=>v.lang.toLowerCase().startsWith('en'));
+  const sel=$('voice'),cur=sel.value;
+  sel.innerHTML=vs.map(v=>`<option value="${v.voiceURI}">${v.name} (${v.lang})</option>`).join('')||'<option value="">기본 음성</option>';
+  const pref=vs.find(v=>/en[-_]US/i.test(v.lang)&&/google|natural|neural/i.test(v.name))||vs.find(v=>/en[-_]US/i.test(v.lang))||vs[0];
+  sel.value=cur||(pref&&pref.voiceURI)||'';
+}
+speechSynthesis.onvoiceschanged=loadVoices;loadVoices();
+const curVoice=()=>speechSynthesis.getVoices().find(v=>v.voiceURI===$('voice').value);
+
+// --- 읽기 (페이지가 바뀌면 gen이 올라가 이전 낭독은 즉시 폐기) ---
+function speak(paras){
+  const my=++gen;speechSynthesis.cancel();
+  const chunks=[];
+  for(const p of paras){let cur='';
+    for(const s of p.split(/(?<=[.!?…]["”’']?)\s+/)){
+      if(cur&&(cur+' '+s).length>220){chunks.push(cur);cur=s}else cur=cur?cur+' '+s:s}
+    if(cur)chunks.push(cur)}
+  let i=0;
+  const next=()=>{
+    if(my!==gen)return;
+    if(i>=chunks.length){st.textContent=`페이지 ${pageNo} 읽기 완료 · 다음 장을 넘겨주세요`;return}
+    st.textContent=`페이지 ${pageNo} 읽는 중 (${i+1}/${chunks.length})`;
+    const u=new SpeechSynthesisUtterance(chunks[i++]);
+    const v=curVoice();u.lang=v?v.lang:'en-US';if(v)u.voice=v;
+    u.rate=parseFloat($('rate').value);
+    u.onend=next;
+    u.onerror=e=>{if(e.error!=='canceled'&&e.error!=='interrupted')next()};
+    speechSynthesis.speak(u)};
+  setTimeout(next,150);
+}
+
+// --- 텍스트 정리·비교 ---
+const clean=t=>t.replace(/-\s*\n\s*/g,'').replace(/\s*\n\s*/g,' ').replace(/\s+/g,' ').trim();
+const alpha=t=>(t.match(/[A-Za-z ,.'"!?;:-]/g)||[]).length/(t.length||1);
+const wordSet=t=>new Set(t.toLowerCase().match(/[a-z]{4,}/g)||[]);
+function sim(a,b){let n=0;for(const w of a)if(b.has(w))n++;return n/Math.min(a.size,b.size)}
+
+// --- 움직임 감지 (손·책장이 움직이는 동안은 OCR을 건너뜀) ---
+function motion(){
+  const c=sm.getContext('2d',{willReadFrequently:true});
+  c.drawImage(video,0,0,48,36);
+  const d=c.getImageData(0,0,48,36).data,g=new Float32Array(48*36);
+  for(let i=0;i<g.length;i++)g[i]=d[i*4]*.3+d[i*4+1]*.59+d[i*4+2]*.11;
+  let s=0;if(prev){for(let i=0;i<g.length;i++)s+=Math.abs(g[i]-prev[i]);s/=g.length}
+  prev=g;return s;
+}
+
+async function readFrame(){
+  const vw=video.videoWidth,vh=video.videoHeight,m=$('area').value;
+  let sx=0,sw=vw;if(m==='L')sw=vw/2;if(m==='R'){sx=vw/2;sw=vw/2}
+  const k=Math.min(1,OCRW/sw);cv.width=Math.round(sw*k);cv.height=Math.round(vh*k);
+  const c=cv.getContext('2d');c.filter='grayscale(1) contrast(1.3)';
+  c.drawImage(video,sx,0,sw,vh,0,0,cv.width,cv.height);
+  mv.textContent='글자 인식 중…';
+  const {data}=await worker.recognize(cv);
+  let paras=data.paragraphs
+    ?data.paragraphs.filter(p=>p.confidence>=60).map(p=>clean(p.text))
+    :data.text.split(/\n\s*\n/).map(clean);
+  paras=paras.filter(t=>t.split(' ').length>=3&&alpha(t)>0.7);
+  const words=wordSet(paras.join(' '));
+  if(words.size<MINWORDS){
+    fails++;if(fails>=3)locked=true;else locked=false;
+    mv.textContent='글자를 충분히 찾지 못했어요 (조명·각도·거리를 확인하세요)';return}
+  fails=0;
+  if(pageWords&&sim(words,pageWords)>=SIM){mv.textContent='같은 페이지 (그대로 읽는 중)';return}
+  pageWords=words;pageNo++;lastParas=paras;tx.textContent=paras.join('\n\n');
+  $('again').disabled=false;mv.textContent='';speak(paras);
+}
+
+async function tick(){
+  if(!running)return;
+  if(video.readyState>=2&&!busy){
+    const diff=motion();
+    if(diff>MOVE){still=0;locked=false;fails=0;mv.textContent='움직임 감지…'}else still++;
+    if(still>=2&&!locked&&Date.now()-lastTry>1500){
+      locked=true;busy=true;
+      try{await readFrame()}catch(e){console.error(e);mv.textContent='인식 오류: '+(e.message||e)}
+      busy=false;lastTry=Date.now();
+    }
+  }
+  setTimeout(tick,400);
+}
+
+async function start(){
+  speechSynthesis.speak(new SpeechSynthesisUtterance('')); // 사용자 터치 시점에 음성 허용
+  $('go').disabled=true;st.textContent='카메라와 인식 엔진 준비 중… (처음엔 1~2분 걸릴 수 있어요)';
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},audio:false});
+    video.srcObject=stream;await video.play();
+    if(!worker)worker=await Tesseract.createWorker('eng',1,{langPath:'https://cdn.jsdelivr.net/npm/@tesseract.js-data/eng/4.0.0_best_int'});
+    try{wake=await navigator.wakeLock.request('screen')}catch(e){}
+    running=true;pageNo=0;pageWords=null;prev=null;still=0;locked=false;fails=0;lastTry=0;
+    $('go').textContent='정지';st.textContent='책을 비춰주세요';tick();
+  }catch(e){
+    st.textContent='시작 실패: '+(e.message||e)+' (HTTPS 주소인지, 카메라 권한을 허용했는지 확인하세요)';
+    if(stream)stream.getTracks().forEach(t=>t.stop());
+  }
+  $('go').disabled=false;
+}
+function stop(){
+  running=false;gen++;speechSynthesis.cancel();
+  if(stream)stream.getTracks().forEach(t=>t.stop());
+  if(wake){wake.release().catch(()=>{});wake=null}
+  $('go').textContent='시작';st.textContent='정지됨';mv.textContent='';
+}
+$('go').onclick=()=>running?stop():start();
+$('again').onclick=()=>{if(lastParas.length)speak(lastParas)};
+document.addEventListener('visibilitychange',async()=>{
+  if(running&&document.visibilityState==='visible'){try{wake=await navigator.wakeLock.request('screen')}catch(e){}}});
+</script>
+</body>
+</html>
