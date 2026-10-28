@@ -5,40 +5,72 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>원서 낭독기</title>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,600&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#f7f6f2;--fg:#1d1d1b;--mu:#6b6a64;--card:#ebe9e2;--ac:#1f5fd6;--on:#fff}
-@media(prefers-color-scheme:dark){:root{--bg:#141413;--fg:#ecebe6;--mu:#9a988f;--card:#222220;--ac:#6c9cff;--on:#10131a}}
+:root{color-scheme:light dark;--bg:#f4f1ea;--sf:#fbf9f4;--ink:#23201b;--mu:#7a7568;--ln:#e3ded2;--ac:#2e5b4e;--on:#fbf9f4;--am:#c98a1b}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#12110f;--sf:#1b1a17;--ink:#efeae0;--mu:#8f897b;--ln:#2b2924;--ac:#8fc4a8;--on:#0e1a15;--am:#e0ad4a}}
+:root[data-theme="dark"]{color-scheme:dark;--bg:#12110f;--sf:#1b1a17;--ink:#efeae0;--mu:#8f897b;--ln:#2b2924;--ac:#8fc4a8;--on:#0e1a15;--am:#e0ad4a}
 *{box-sizing:border-box}
-body{margin:0 auto;max-width:640px;padding:12px;font:16px/1.5 system-ui,sans-serif;background:var(--bg);color:var(--fg)}
-h1{font-size:20px;margin:4px 0 10px}
-video{width:100%;max-height:40vh;background:#000;border-radius:8px;object-fit:contain;display:block}
-.row{display:flex;gap:8px;align-items:center;margin:10px 0}
-.row label{flex:0 0 76px;color:var(--mu);font-size:14px}
-select,input[type=range]{flex:1;min-width:0}
-select{padding:8px;border-radius:6px;border:1px solid var(--mu);background:var(--card);color:var(--fg);font-size:15px}
-button{padding:12px 16px;border:0;border-radius:8px;font-size:16px;font-weight:600;background:var(--ac);color:var(--on)}
-button.sub{background:var(--card);color:var(--fg)}
-button:disabled{opacity:.5}
-#st{font-weight:600;margin:10px 0 0}
-#mv{color:var(--mu);font-size:14px;min-height:21px}
-#tx{white-space:pre-wrap;background:var(--card);border-radius:8px;padding:10px;max-height:30vh;overflow:auto;font-size:15px;margin-top:6px}
-details{margin-top:10px}
-summary{color:var(--mu)}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans KR",sans-serif;-webkit-font-smoothing:antialiased}
+main{max-width:560px;margin:0 auto;padding:calc(20px + env(safe-area-inset-top,0px)) 16px calc(32px + env(safe-area-inset-bottom,0px))}
+.eyebrow{font:600 11px/1 "Newsreader",Georgia,serif;letter-spacing:.22em;color:var(--mu)}
+h1{margin:6px 0 16px;font-size:26px;line-height:1.2;letter-spacing:-.03em;font-weight:700}
+.vf{position:relative;border-radius:18px;overflow:hidden;background:#000;aspect-ratio:4/3;border:1px solid var(--ln)}
+video{width:100%;height:100%;object-fit:contain;display:block}
+.c{position:absolute;width:22px;height:22px;border:2px solid rgba(255,255,255,.8);pointer-events:none}
+.tl{top:12px;left:12px;border-right:0;border-bottom:0;border-top-left-radius:6px}
+.tr{top:12px;right:12px;border-left:0;border-bottom:0;border-top-right-radius:6px}
+.bl{bottom:12px;left:12px;border-right:0;border-top:0;border-bottom-left-radius:6px}
+.br{bottom:12px;right:12px;border-left:0;border-top:0;border-bottom-right-radius:6px}
+.badge{position:absolute;left:14px;top:14px;margin:14px 0 0 14px;display:flex;align-items:center;gap:8px;padding:5px 11px 5px 9px;border-radius:99px;background:rgba(0,0,0,.55);color:#fff;font:600 13px/1 "Newsreader",Georgia,serif;letter-spacing:.04em;backdrop-filter:blur(6px)}
+.dot{width:8px;height:8px;border-radius:50%;background:#8a8a85}
+.dot.on{background:#bdbdb6}
+.dot.sc{background:var(--am);animation:pu 1s ease-in-out infinite}
+.dot.rd{background:var(--ac);animation:pu 1.4s ease-in-out infinite}
+@keyframes pu{50%{opacity:.35;transform:scale(.8)}}
+@media (prefers-reduced-motion:reduce){.dot{animation:none!important}}
+#st{margin:18px 2px 2px;font-size:19px;font-weight:650;letter-spacing:-.02em;line-height:1.35}
+#mv{margin:0 2px;min-height:22px;color:var(--mu);font-size:14px}
+.actions{display:flex;gap:10px;margin:14px 0 18px}
+button{font:inherit;font-weight:650;border:0;border-radius:14px;padding:15px 18px;background:var(--ac);color:var(--on);letter-spacing:-.01em;transition:transform .12s,opacity .12s}
+button:active{transform:scale(.98)}
+#go{flex:1}
+button.sub{background:transparent;color:var(--ink);border:1px solid var(--ln)}
+button:disabled{opacity:.4}
+.card{background:var(--sf);border:1px solid var(--ln);border-radius:18px;padding:4px 16px}
+.row{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--ln)}
+.row:last-child{border-bottom:0}
+.row label{flex:0 0 64px;color:var(--mu);font-size:14px}
+select{flex:1;min-width:0;appearance:none;border:0;background:transparent;color:var(--ink);font:inherit;font-size:15px;text-align:right;text-align-last:right;padding:2px 0}
+input[type=range]{flex:1;min-width:0;accent-color:var(--ac)}
+output{flex:0 0 46px;text-align:right;font:600 14px "Newsreader",Georgia,serif;color:var(--mu)}
+details{margin-top:16px}
+summary{color:var(--mu);font-size:14px;padding:6px 2px}
+#tx{margin-top:6px;padding:14px 16px;background:var(--sf);border:1px solid var(--ln);border-radius:14px;max-height:34vh;overflow:auto;white-space:pre-wrap;font:17px/1.65 "Newsreader",Georgia,serif}
 </style>
 </head>
 <body>
-<h1>원서 낭독기</h1>
+<main>
+<header><div class="eyebrow">BOOK READER</div><h1>원서 낭독기</h1></header>
+<section class="vf">
 <video id="v" playsinline muted></video>
+<i class="c tl"></i><i class="c tr"></i><i class="c bl"></i><i class="c br"></i>
+<div class="badge" style="margin:0"><span id="dot" class="dot"></span><span id="pg">—</span></div>
+</section>
 <div id="st">시작 버튼을 누르세요</div>
 <div id="mv"></div>
-<div class="row"><button id="go" style="flex:1">시작</button><button id="again" class="sub" disabled>처음부터 다시</button></div>
-<div class="row"><label>인식 영역</label>
-<select id="area"><option value="A">화면 전체 (한 페이지)</option><option value="L">왼쪽 절반</option><option value="R">오른쪽 절반</option></select></div>
-<div class="row"><label>속도</label><input id="rate" type="range" min="0.7" max="1.3" step="0.05" value="0.95"></div>
-<div class="row"><label>목소리</label><select id="voice"></select></div>
-<div class="row"><label>카메라</label><select id="cam"><option>시작하면 표시돼요</option></select></div>
-<div class="row" id="zrow" style="display:none"><label>확대</label><input id="zoom" type="range"></div>
+<div class="actions"><button id="go">시작</button><button id="again" class="sub" disabled>처음부터 다시</button></div>
+<section class="card">
+<div class="row"><label for="area">인식 영역</label><select id="area"><option value="A">화면 전체 (한 페이지)</option><option value="L">왼쪽 절반</option><option value="R">오른쪽 절반</option></select></div>
+<div class="row"><label for="cam">카메라</label><select id="cam"><option>시작하면 표시돼요</option></select></div>
+<div class="row" id="zrow" style="display:none"><label for="zoom">확대</label><input id="zoom" type="range"></div>
+<div class="row"><label for="rate">속도</label><input id="rate" type="range" min="0.7" max="1.3" step="0.05" value="0.95"><output id="rv">0.95×</output></div>
+<div class="row"><label for="voice">목소리</label><select id="voice"></select></div>
+</section>
 <details><summary>인식된 텍스트</summary><div id="tx"></div></details>
+</main>
 <canvas id="cv" hidden></canvas><canvas id="sm" width="48" height="36" hidden></canvas>
 <script>
 const $=id=>document.getElementById(id);
@@ -182,6 +214,15 @@ $('go').onclick=()=>running?stop():start();
 $('again').onclick=()=>{if(lastParas.length)speak(lastParas)};
 document.addEventListener('visibilitychange',async()=>{
   if(running&&document.visibilityState==='visible'){try{wake=await navigator.wakeLock.request('screen')}catch(e){}}});
+
+// --- 상태 표시(점·페이지 배지·속도 값) ---
+const dot=$('dot');
+function paint(){const a=st.textContent,b=mv.textContent;
+  dot.className='dot '+(/읽는 중/.test(a)?'rd':/인식 중|움직임/.test(b)?'sc':running?'on':'');
+  $('pg').textContent=pageNo?'P.'+pageNo:'—'}
+new MutationObserver(paint).observe(st,{childList:true});
+new MutationObserver(paint).observe(mv,{childList:true});
+$('rate').addEventListener('input',()=>{$('rv').textContent=parseFloat($('rate').value).toFixed(2)+'×'});
 </script>
 </body>
 </html>
