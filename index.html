@@ -223,6 +223,7 @@ function paint(){const a=st.textContent,b=mv.textContent;
 new MutationObserver(paint).observe(st,{childList:true});
 new MutationObserver(paint).observe(mv,{childList:true});
 $('rate').addEventListener('input',()=>{$('rv').textContent=parseFloat($('rate').value).toFixed(2)+'×'});
+$('voice').addEventListener('change',()=>{if(running)return;speechSynthesis.cancel();const u=new SpeechSynthesisUtterance('This is how I will read your book.');const v=curVoice();if(v){u.voice=v;u.lang=v.lang}u.rate=parseFloat($('rate').value);speechSynthesis.speak(u)});
 </script>
 </body>
 </html>
